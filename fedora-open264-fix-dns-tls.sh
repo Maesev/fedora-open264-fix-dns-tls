@@ -1,5 +1,5 @@
 #!/bin/bash
-S_VERSION="v.1.03 (Enter confirmation)"; clear
+S_VERSION="v.1.04 (Fixed Pipe Input)"; clear
 #set -euo pipefail  # Exit on error, unset vars, pipe failures
 if [[ "$LANG" =~ ^ru ]]; then
     LNG="RU"
@@ -24,7 +24,6 @@ declare -A STEP_8=( [EN]="Cisco openh264 disabled, which was blocking Flatpak up
 declare -A STEP_9=( [EN]="Drivers for hardware video acceleration installed" [RU]="Установлены драйвера для аппаратного ускорения видео" )
 declare -A STEP_10=( [EN]="Multimedia player VLC installed (plays everything)" [RU]="Установлен мультимедиа-плеер VLC (проигрывает всё)" )
 declare -A STEP_11=( [EN]="VLC set as default video player" [RU]="VLC сделан видеоплеером по умолчанию" )
-declare -A STEP_12=( [EN]="VLC set as default audio player" [RU]="VLC сделан аудиоплеером по умолчанию" )
 declare -A STEP_DNS=( [EN]="DNS-over-TLS configured strictly (Domains=~.)" [RU]="Строго настроен зашифрованный DNS-over-TLS (Domains=~.)" )
 declare -A MSG_GPU_INTEL=( [EN]="Intel Media Driver installed (hardware acceleration)" [RU]="Установлен Intel Media Driver (аппаратное ускорение)" )
 declare -A MSG_GPU_AMD=( [EN]="mesa-va-drivers-freeworld installed (hardware acceleration)" [RU]="Установлены mesa-va-drivers-freeworld (аппаратное ускорение)" )
@@ -85,7 +84,7 @@ if [[ -f /etc/os-release ]]; then
     if [[ "$ID" != "fedora" ]]; then
         printf "${CL[R]}${MSG_OS_WARNING[$LNG]}" "$ID"
         echo
-        read -p "${MSG_OS_PROMPT[$LNG]} " -r
+        read -p "${MSG_OS_PROMPT[$LNG]} " -r </dev/tty
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             echo "${MSG_EXITING[$LNG]}"
@@ -93,7 +92,7 @@ if [[ -f /etc/os-release ]]; then
         fi
     elif [[ "$VARIANT_ID" =~ ^(silverblue|kinoite|sericea)$ ]]; then  # Atomic variants
         printf "${CL[Y]}${MSG_ATOMIC_WARNING[$LNG]}${CL[NC]}" "$VARIANT_ID"
-        read -p " " -r
+        read -p " " -r </dev/tty
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then exit 1; fi
         IS_ATOMIC=true
@@ -117,7 +116,7 @@ if [[ "$IS_ATOMIC" == true ]]; then
 else
     CMD="sudo dnf config-manager setopt fedora-cisco-openh264.enabled=0"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_1[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  02 / 12  🟪🟪  ${STEP_2[$LNG]}...🔧${CL[NC]}\n"
@@ -128,7 +127,7 @@ if [[ "$IS_ATOMIC" == true ]]; then
 else
     CMD="sudo dnf swap '*openh264*' noopenh264 --allowerasing -y"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_2[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  03 / 12  🟪🟪  ${STEP_3[$LNG]}...🔧${CL[NC]}\n"
@@ -139,18 +138,18 @@ if [[ "$IS_ATOMIC" == true ]]; then
 else
     CMD="sudo dnf update -y"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_3[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  04 / 12  🟪🟪  ${STEP_4[$LNG]}...🔧${CL[NC]}\n"
 
-# 4. Enable RPM Fusion (if not already)
+# 4. Enable RPM Fusion (with a fallback check if already installed)
 if [[ "$IS_ATOMIC" == true ]]; then
     CMD="rpm-ostree install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-\$(rpm -E %fedora).noarch.rpm https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-\$(rpm -E %fedora).noarch.rpm"
 else
-    CMD="sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-\$(rpm -E %fedora).noarch.rpm https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-\$(rpm -E %fedora).noarch.rpm"
+    CMD="sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-\$(rpm -E %fedora).noarch.rpm https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-\$(rpm -E %fedora).noarch.rpm || (sudo dnf repolist | grep -q 'rpmfusion-free')"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_4[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  05 / 12  🟪🟪  ${STEP_5[$LNG]}...🔧${CL[NC]}\n"
@@ -161,7 +160,7 @@ if [[ "$IS_ATOMIC" == true ]]; then
 else
     CMD="sudo dnf swap ffmpeg-free ffmpeg --allowerasing -y"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_5[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  06 / 12  🟪🟪  ${STEP_6[$LNG]}...🔧${CL[NC]}\n"
@@ -172,7 +171,7 @@ if [[ "$IS_ATOMIC" == true ]]; then
 else
     CMD="sudo dnf install @multimedia --exclude=PackageKit-gstreamer-plugin -y"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_6[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  07 / 12  🟪🟪  ${STEP_7[$LNG]}...🔧${CL[NC]}\n"
@@ -188,42 +187,45 @@ exclude=openh264*
 EOF
     CMD="true"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_7[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  08 / 12  🟪🟪  ${STEP_8[$LNG]}...🔧${CL[NC]}\n"
 
 # 8. Disable the Cisco codec that breaks Flatpak updates:
 CMD="sudo flatpak mask org.freedesktop.Platform.openh264"
-$CMD
+eval "$CMD"
 SaveResult "${STEP_8[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  09 / 12  🟪🟪  ${STEP_9[$LNG]}...🔧${CL[NC]}\n"
 
 # 9. Install relevant hardware drivers for ~30% better efficiency
+CMD="true"
 GPU_VENDOR=$(lspci | grep -i "vga\|3d" | grep -oE "Intel|AMD|NVIDIA" | head -1 || echo "Unknown")
 if [ "$GPU_VENDOR" = "Intel" ]; then
     if [[ "$IS_ATOMIC" == true ]]; then
         CMD="rpm-ostree install -y intel-media-driver libva-vdpau-driver"
     else
-        CMD="sudo dnf install -y intel-media-driver libva-vdpau-driver -y"
+        CMD="sudo dnf install -y intel-media-driver libva-vdpau-driver"
     fi
 elif [ "$GPU_VENDOR" = "AMD" ]; then
     if [[ "$IS_ATOMIC" == true ]]; then
         CMD="rpm-ostree install -y libva-mesa-driver && rpm-ostree override replace -y mesa-va-drivers mesa-va-drivers-freeworld && rpm-ostree override replace -y mesa-vdpau-drivers mesa-vdpau-drivers-freeworld"
     else
-        CMD="sudo dnf install -y libva-mesa-driver -y && sudo dnf swap mesa-va-drivers mesa-va-drivers-freeworld -y && sudo dnf swap mesa-vdpau-drivers mesa-vdpau-drivers-freeworld -y"
+        CMD="sudo dnf install -y libva-mesa-driver && sudo dnf swap mesa-va-drivers mesa-va-drivers-freeworld -y && sudo dnf swap mesa-vdpau-drivers mesa-vdpau-drivers-freeworld -y"
     fi
     # 32-bit support for Steam, etc.
     if [[ "$IS_ATOMIC" == true ]]; then
         CMD="$CMD && rpm-ostree override replace -y mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 && rpm-ostree override replace -y mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686"
     else
-        CMD="$CMD && sudo dnf swap mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 -y 2>/dev/null || true && sudo dnf swap mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686 -y 2>/dev/null || true"
+        CMD="$CMD && (sudo dnf swap mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 -y 2>/dev/null || true) && (sudo dnf swap mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686 -y 2>/dev/null || true)"
     fi
 elif [ "$GPU_VENDOR" = "NVIDIA" ]; then
     CMD="echo '⚠️ Manually install proprietary NVIDIA driver for better performance'"
+else
+    CMD="echo 'ℹ️ No specific GPU acceleration setup required for generic vendor'"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_9[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  10 / 12  🟪🟪  ${STEP_10[$LNG]}...🔧${CL[NC]}\n"
@@ -234,24 +236,30 @@ if [[ "$IS_ATOMIC" == true ]]; then
 else
     CMD="sudo dnf install vlc -y"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_10[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  11 / 12  🟪🟪  ${STEP_11[$LNG]}...🔧${CL[NC]}\n"
 
-# 11. Make VLC default player for all video formats
-CMD="xdg-mime default vlc.desktop video/mp4 video/x-matroska video/webm video/avi 2>/dev/null || true"
-$CMD
+# 11. Make VLC default player for all video formats (Configured for the actual user, not root)
+if [ -n "$SUDO_USER" ]; then
+    CMD="sudo -u $SUDO_USER xdg-mime default vlc.desktop video/mp4 video/x-matroska video/webm video/avi video/quicktime video/x-flv 2>/dev/null || true"
+else
+    sudo mkdir -p /root/.config
+    CMD="xdg-mime default vlc.desktop video/mp4 video/x-matroska video/webm video/avi video/quicktime video/x-flv 2>/dev/null || true"
+fi
+eval "$CMD"
 SaveResult "${STEP_11[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  12 / 12  🟪🟪  ${STEP_DNS[$LNG]}...🔧${CL[NC]}\n"
 
-# 12 (Активный шаг). Настройка DNS-over-TLS с подтверждением через Enter
-read -p "${MSG_DNS_PROMPT[$LNG]} " -r
+# 12. Настройка DNS-over-TLS с интерактивным вводом через Pipe
+CMD="true"
+read -p "${MSG_DNS_PROMPT[$LNG]} " -r </dev/tty
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${MSG_DNS_SELECT[$LNG]}"
-    read -p "> " DNS_CHOICE
+    read -p "> " DNS_CHOICE </dev/tty
     DNS_SERVERS=""
     case "$DNS_CHOICE" in
         1)
@@ -287,7 +295,7 @@ else
     echo -e "${MSG_DNS_SKIPPING[$LNG]}"
     CMD="true"
 fi
-$CMD
+eval "$CMD"
 SaveResult "${STEP_DNS[$LNG]}" "$?"
 
 
@@ -311,4 +319,3 @@ echo -e "   2. --> 'hardware video'"
 echo -e "   3. Hardware-accelerated video decode = Enabled"
 echo -e ""
 echo -e "${CL[P]}${MSG_URL[$LNG]}\n"
-
