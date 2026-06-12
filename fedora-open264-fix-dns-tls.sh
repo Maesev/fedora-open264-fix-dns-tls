@@ -1,5 +1,5 @@
 #!/bin/bash
-S_VERSION="v.1.07 (Code Architecture Fixed)"; clear
+S_VERSION="v.1.08 (DNF Install & Quotes Fixed)"; clear
 #set -euo pipefail
 
 if [[ "$LANG" =~ ^ru ]]; then
@@ -96,9 +96,8 @@ fi
 echo -e "\n${CL[P]}🟪🟪  01 / 12  🟪🟪  ${STEP_1[$LNG]}...🔧${CL[NC]}\n"
 if [[ "$IS_ATOMIC" == true ]]; then
     [ -f /etc/yum.repos.d/fedora-cisco-openh264.repo ] && sudo sed -i 's/enabled=1/enabled=0/' /etc/yum.repos.d/fedora-cisco-openh264.repo
-else
-    sudo dnf config-manager setopt fedora-cisco-openh264.enabled=0
 fi
+sudo dnf config-manager setopt fedora-cisco-openh264.enabled=0
 SaveResult "${STEP_1[$LNG]}" "$?"
 
 # 2. Swap openh264
@@ -126,12 +125,12 @@ SaveResult "${STEP_4[$LNG]}" "$?"
 
 # 5. Swap ffmpeg
 echo -e "\n${CL[P]}🟪🟪  05 / 12  🟪🟪  ${STEP_5[$LNG]}...🔧${CL[NC]}\n"
-if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree override replace -y ffmpeg-free ffmpeg"; else sudo dnf swap ffmpeg-free ffmpeg --allowerasing -y; fi
+if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree override replace -y ffmpeg-free ffmpeg; else sudo dnf swap ffmpeg-free ffmpeg --allowerasing -y; fi
 SaveResult "${STEP_5[$LNG]}" "$?"
 
 # 6. GStreamer Codecs
 echo -e "\n${CL[P]}🟪🟪  06 / 12  🟪🟪  ${STEP_6[$LNG]}...🔧${CL[NC]}\n"
-if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree install -y @multimedia --exclude=PackageKit-gstreamer-plugin"; else sudo dnf install @multimedia --exclude=PackageKit-gstreamer-plugin -y; fi
+if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree install -y @multimedia --exclude=PackageKit-gstreamer-plugin; else sudo dnf install @multimedia --exclude=PackageKit-gstreamer-plugin -y; fi
 SaveResult "${STEP_6[$LNG]}" "$?"
 
 # 7. Global DNF Exception
@@ -152,7 +151,7 @@ echo -e "\n${CL[P]}🟪🟪  08 / 12  🟪🟪  ${STEP_8[$LNG]}...🔧${CL[NC]}\
 sudo flatpak mask org.freedesktop.Platform.openh264
 SaveResult "${STEP_8[$LNG]}" "$?"
 
-# 9. GPU Drivers with Testing-Repo Fallback
+# 9. GPU Drivers with Testing-Repo Fallback (Smart Install)
 echo -e "\n${CL[P]}🟪🟪  09 / 12  🟪🟪  ${STEP_9[$LNG]}...🔧${CL[NC]}\n"
 GPU_VENDOR=$(lspci | grep -i "vga\|3d" | grep -oE "Intel|AMD|NVIDIA" | head -1)
 [ -z "$GPU_VENDOR" ] && GPU_VENDOR="Unknown"
@@ -168,16 +167,12 @@ elif [ "$GPU_VENDOR" = "AMD" ]; then
         rpm-ostree override replace -y mesa-va-drivers mesa-va-drivers-freeworld && \
         rpm-ostree override replace -y mesa-vdpau-drivers mesa-vdpau-drivers-freeworld
     else
-        # Base 64-bit drivers with testing repo fallback
-        (sudo dnf swap mesa-va-drivers mesa-va-drivers-freeworld -y || \
-         sudo dnf swap mesa-va-drivers mesa-va-drivers-freeworld -y --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing) && \
-        (sudo dnf swap mesa-vdpau-drivers mesa-vdpau-drivers-freeworld -y || \
-         sudo dnf swap mesa-vdpau-drivers mesa-vdpau-drivers-freeworld -y --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing) && \
-        # Steam/Wine 32-bit drivers support (won't block the step if 32-bit architecture is missing)
-        (sudo dnf swap mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 -y --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing 2>/dev/null || \
-         sudo dnf swap mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 -y 2>/dev/null || true) && \
-        (sudo dnf swap mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686 -y --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing 2>/dev/null || \
-         sudo dnf swap mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686 -y 2>/dev/null || true)
+        # Base 64-bit drivers via robust install with testing repo fallback
+        (sudo dnf install -y mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld --allowerasing || \
+         sudo dnf install -y mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing) && \
+        # Steam/Wine 32-bit drivers support via robust install (completely quieted to prevent DNF transaction reports)
+        (sudo dnf install -y mesa-va-drivers-freeworld.i686 mesa-vdpau-drivers-freeworld.i686 --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing > /dev/null 2>&1 || \
+         sudo dnf install -y mesa-va-drivers-freeworld.i686 mesa-vdpau-drivers-freeworld.i686 --allowerasing > /dev/null 2>&1 || true)
     fi
 elif [ "$GPU_VENDOR" = "NVIDIA" ]; then
     echo '⚠️ Manually install proprietary NVIDIA driver via Software Center'
@@ -188,7 +183,7 @@ SaveResult "${STEP_9[$LNG]}" "$?"
 
 # 10. Install VLC
 echo -e "\n${CL[P]}🟪🟪  10 / 12  🟪🟪  ${STEP_10[$LNG]}...🔧${CL[NC]}\n"
-if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree install -y vlc"; else sudo dnf install vlc -y; fi
+if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree install -y vlc; else sudo dnf install vlc -y; fi
 SaveResult "${STEP_10[$LNG]}" "$?"
 
 # 11. VLC Default (MIME fixed for real user)
