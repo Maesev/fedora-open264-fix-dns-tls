@@ -1,5 +1,5 @@
 #!/bin/bash
-S_VERSION="v.1.09 (AMD/Intel Pure 64-bit Only)"; clear
+S_VERSION="v.1.10 (AMD Package Fixed)"; clear
 #set -euo pipefail
 
 if [[ "$LANG" =~ ^ru ]]; then
@@ -152,7 +152,7 @@ echo -e "\n${CL[P]}🟪🟪  08 / 12  🟪🟪  ${STEP_8[$LNG]}...🔧${CL[NC]}\
 sudo flatpak mask org.freedesktop.Platform.openh264
 SaveResult "${STEP_8[$LNG]}" "$?"
 
-# 9. GPU Drivers (Pure AMD/Intel 64-bit Only)
+# 9. GPU Drivers (Pure AMD/Intel 64-bit Only - Fixed)
 echo -e "\n${CL[P]}🟪🟪  09 / 12  🟪🟪  ${STEP_9[$LNG]}...🔧${CL[NC]}\n"
 GPU_VENDOR=$(lspci | grep -i "vga\|3d" | grep -oE "Intel|AMD" | head -1)
 [ -z "$GPU_VENDOR" ] && GPU_VENDOR="Unknown"
@@ -165,12 +165,11 @@ if [ "$GPU_VENDOR" = "Intel" ]; then
     fi
 elif [ "$GPU_VENDOR" = "AMD" ]; then
     if [[ "$IS_ATOMIC" == true ]]; then
-        rpm-ostree override replace -y mesa-va-drivers mesa-va-drivers-freeworld && \
-        rpm-ostree override replace -y mesa-vdpau-drivers mesa-vdpau-drivers-freeworld
+        rpm-ostree override replace -y mesa-va-drivers mesa-va-drivers-freeworld
     else
-        # Pure 64-bit drivers installation with updates-testing fallback
-        sudo dnf install -y mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld --allowerasing || \
-        sudo dnf install -y mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing
+        # Pure 64-bit VA-API drivers installation with updates-testing fallback
+        sudo dnf install -y mesa-va-drivers-freeworld --allowerasing || \
+        sudo dnf install -y mesa-va-drivers-freeworld --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing
     fi
 else
     echo "ℹ️ Vendor is not AMD or Intel ($GPU_VENDOR). Skipping GPU acceleration steps."
