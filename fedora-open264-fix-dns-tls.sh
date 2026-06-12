@@ -1,5 +1,5 @@
 #!/bin/bash
-S_VERSION="v.1.11 (Architecture & Exclude Fixed)"; clear
+S_VERSION="v.1.12 (Clean Swap Fixed)"; clear
 #set -euo pipefail
 
 if [[ "$LANG" =~ ^ru ]]; then
@@ -101,12 +101,12 @@ else
 fi
 SaveResult "${STEP_1[$LNG]}" "$?"
 
-# 2. Swap openh264
+# 2. Swap openh264 (Fixed: wildcard adjusted to prevent self-matching)
 echo -e "\n${CL[P]}🟪🟪  02 / 12  🟪🟪  ${STEP_2[$LNG]}...🔧${CL[NC]}\n"
 if [[ "$IS_ATOMIC" == true ]]; then
-    sudo rpm-ostree override remove '*openh264*' --install noopenh264 -y
+    sudo rpm-ostree override remove 'openh264*' --install noopenh264 -y
 else
-    sudo dnf swap '*openh264*' noopenh264 --allowerasing -y
+    sudo dnf swap 'openh264*' noopenh264 --allowerasing -y
 fi
 SaveResult "${STEP_2[$LNG]}" "$?"
 
@@ -129,7 +129,7 @@ echo -e "\n${CL[P]}🟪🟪  05 / 12  🟪🟪  ${STEP_5[$LNG]}...🔧${CL[NC]}\
 if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree override replace -y ffmpeg-free ffmpeg; else sudo dnf swap ffmpeg-free ffmpeg --allowerasing -y; fi
 SaveResult "${STEP_5[$LNG]}" "$?"
 
-# 6. GStreamer Codecs (Fixed: explicitly excluding cisco-openh264 plugin)
+# 6. GStreamer Codecs
 echo -e "\n${CL[P]}🟪🟪  06 / 12  🟪🟪  ${STEP_6[$LNG]}...🔧${CL[NC]}\n"
 if [[ "$IS_ATOMIC" == true ]]; then 
     rpm-ostree install -y @multimedia --exclude=PackageKit-gstreamer-plugin --exclude=gstreamer1-plugin-openh264
@@ -156,7 +156,7 @@ echo -e "\n${CL[P]}🟪🟪  08 / 12  🟪🟪  ${STEP_8[$LNG]}...🔧${CL[NC]}\
 sudo flatpak mask org.freedesktop.Platform.openh264
 SaveResult "${STEP_8[$LNG]}" "$?"
 
-# 9. GPU Drivers (Fixed: Explicit target to 64-bit .x86_64 architecture)
+# 9. GPU Drivers
 echo -e "\n${CL[P]}🟪🟪  09 / 12  🟪🟪  ${STEP_9[$LNG]}...🔧${CL[NC]}\n"
 GPU_VENDOR=$(lspci | grep -i "vga\|3d" | grep -oE "Intel|AMD" | head -1)
 [ -z "$GPU_VENDOR" ] && GPU_VENDOR="Unknown"
@@ -171,7 +171,6 @@ elif [ "$GPU_VENDOR" = "AMD" ]; then
     if [[ "$IS_ATOMIC" == true ]]; then
         rpm-ostree override replace -y mesa-va-drivers mesa-va-drivers-freeworld
     else
-        # Force installation of 64-bit video acceleration driver
         sudo dnf install -y mesa-va-drivers-freeworld.x86_64 --allowerasing || \
         sudo dnf install -y mesa-va-drivers-freeworld.x86_64 --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing
     fi
@@ -185,7 +184,7 @@ echo -e "\n${CL[P]}🟪🟪  10 / 12  🟪🟪  ${STEP_10[$LNG]}...🔧${CL[NC]}
 if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree install -y vlc; else sudo dnf install vlc -y; fi
 SaveResult "${STEP_10[$LNG]}" "$?"
 
-# 11. VLC Default (MIME fixed for real user)
+# 11. VLC Default
 echo -e "\n${CL[P]}🟪🟪  11 / 12  🟪🟪  ${STEP_11[$LNG]}...🔧${CL[NC]}\n"
 if [ -n "$SUDO_USER" ]; then
     sudo -u $SUDO_USER xdg-mime default vlc.desktop video/mp4 video/x-matroska video/webm video/avi video/quicktime video/x-flv 2>/dev/null
