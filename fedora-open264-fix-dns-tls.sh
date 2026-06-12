@@ -1,5 +1,5 @@
 #!/bin/bash
-S_VERSION="v.1.04 (Fixed Pipe Input)"; clear
+S_VERSION="v.1.05 (Mesa Sync Fix)"; clear
 #set -euo pipefail  # Exit on error, unset vars, pipe failures
 if [[ "$LANG" =~ ^ru ]]; then
     LNG="RU"
@@ -199,7 +199,7 @@ SaveResult "${STEP_8[$LNG]}" "$?"
 
 echo -e "\n${CL[P]}🟪🟪  09 / 12  🟪🟪  ${STEP_9[$LNG]}...🔧${CL[NC]}\n"
 
-# 9. Install relevant hardware drivers for ~30% better efficiency
+# 9. Install relevant hardware drivers with testing-repo fallback for AMD/Mesa desyncs
 CMD="true"
 GPU_VENDOR=$(lspci | grep -i "vga\|3d" | grep -oE "Intel|AMD|NVIDIA" | head -1 || echo "Unknown")
 if [ "$GPU_VENDOR" = "Intel" ]; then
@@ -212,13 +212,14 @@ elif [ "$GPU_VENDOR" = "AMD" ]; then
     if [[ "$IS_ATOMIC" == true ]]; then
         CMD="rpm-ostree install -y libva-mesa-driver && rpm-ostree override replace -y mesa-va-drivers mesa-va-drivers-freeworld && rpm-ostree override replace -y mesa-vdpau-drivers mesa-vdpau-drivers-freeworld"
     else
-        CMD="sudo dnf install -y libva-mesa-driver && sudo dnf swap mesa-va-drivers mesa-va-drivers-freeworld -y && sudo dnf swap mesa-vdpau-drivers mesa-vdpau-drivers-freeworld -y"
-    fi
-    # 32-bit support for Steam, etc.
-    if [[ "$IS_ATOMIC" == true ]]; then
-        CMD="$CMD && rpm-ostree override replace -y mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 && rpm-ostree override replace -y mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686"
-    else
-        CMD="$CMD && (sudo dnf swap mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 -y 2>/dev/null || true) && (sudo dnf swap mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686 -y 2>/dev/null || true)"
+        # 64-bit drivers with testing repo fallback if standard swap fails
+        CMD="sudo dnf install -y libva-mesa-driver && "
+        CMD="$CMD (sudo dnf swap mesa-va-drivers mesa-va-drivers-freeworld -y || sudo dnf swap mesa-va-drivers mesa-va-drivers-freeworld -y --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing) && "
+        CMD="$CMD (sudo dnf swap mesa-vdpau-drivers mesa-vdpau-drivers-freeworld -y || sudo dnf swap mesa-vdpau-drivers mesa-vdpau-drivers-freeworld -y --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing)"
+        
+        # 32-bit support (Steam, Wine) with testing repo fallback
+        CMD="$CMD && (sudo dnf swap mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 -y --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing 2>/dev/null || sudo dnf swap mesa-va-drivers.i686 mesa-va-drivers-freeworld.i686 -y 2>/dev/null || true)"
+        CMD="$CMD && (sudo dnf swap mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686 -y --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing 2>/dev/null || sudo dnf swap mesa-vdpau-drivers.i686 mesa-vdpau-drivers-freeworld.i686 -y 2>/dev/null || true)"
     fi
 elif [ "$GPU_VENDOR" = "NVIDIA" ]; then
     CMD="echo '⚠️ Manually install proprietary NVIDIA driver for better performance'"
