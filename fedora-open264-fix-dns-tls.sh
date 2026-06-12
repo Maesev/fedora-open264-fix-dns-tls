@@ -1,5 +1,5 @@
 #!/bin/bash
-S_VERSION="v.1.10 (AMD Package Fixed)"; clear
+S_VERSION="v.1.11 (Architecture & Exclude Fixed)"; clear
 #set -euo pipefail
 
 if [[ "$LANG" =~ ^ru ]]; then
@@ -129,9 +129,13 @@ echo -e "\n${CL[P]}🟪🟪  05 / 12  🟪🟪  ${STEP_5[$LNG]}...🔧${CL[NC]}\
 if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree override replace -y ffmpeg-free ffmpeg; else sudo dnf swap ffmpeg-free ffmpeg --allowerasing -y; fi
 SaveResult "${STEP_5[$LNG]}" "$?"
 
-# 6. GStreamer Codecs
+# 6. GStreamer Codecs (Fixed: explicitly excluding cisco-openh264 plugin)
 echo -e "\n${CL[P]}🟪🟪  06 / 12  🟪🟪  ${STEP_6[$LNG]}...🔧${CL[NC]}\n"
-if [[ "$IS_ATOMIC" == true ]]; then rpm-ostree install -y @multimedia --exclude=PackageKit-gstreamer-plugin; else sudo dnf install @multimedia --exclude=PackageKit-gstreamer-plugin -y; fi
+if [[ "$IS_ATOMIC" == true ]]; then 
+    rpm-ostree install -y @multimedia --exclude=PackageKit-gstreamer-plugin --exclude=gstreamer1-plugin-openh264
+else 
+    sudo dnf install @multimedia --exclude=PackageKit-gstreamer-plugin --exclude=gstreamer1-plugin-openh264 -y
+fi
 SaveResult "${STEP_6[$LNG]}" "$?"
 
 # 7. Global DNF Exception
@@ -152,7 +156,7 @@ echo -e "\n${CL[P]}🟪🟪  08 / 12  🟪🟪  ${STEP_8[$LNG]}...🔧${CL[NC]}\
 sudo flatpak mask org.freedesktop.Platform.openh264
 SaveResult "${STEP_8[$LNG]}" "$?"
 
-# 9. GPU Drivers (Pure AMD/Intel 64-bit Only - Fixed)
+# 9. GPU Drivers (Fixed: Explicit target to 64-bit .x86_64 architecture)
 echo -e "\n${CL[P]}🟪🟪  09 / 12  🟪🟪  ${STEP_9[$LNG]}...🔧${CL[NC]}\n"
 GPU_VENDOR=$(lspci | grep -i "vga\|3d" | grep -oE "Intel|AMD" | head -1)
 [ -z "$GPU_VENDOR" ] && GPU_VENDOR="Unknown"
@@ -161,15 +165,15 @@ if [ "$GPU_VENDOR" = "Intel" ]; then
     if [[ "$IS_ATOMIC" == true ]]; then 
         rpm-ostree install -y intel-media-driver libva-vdpau-driver
     else 
-        sudo dnf install -y intel-media-driver libva-vdpau-driver
+        sudo dnf install -y intel-media-driver.x86_64 libva-vdpau-driver.x86_64
     fi
 elif [ "$GPU_VENDOR" = "AMD" ]; then
     if [[ "$IS_ATOMIC" == true ]]; then
         rpm-ostree override replace -y mesa-va-drivers mesa-va-drivers-freeworld
     else
-        # Pure 64-bit VA-API drivers installation with updates-testing fallback
-        sudo dnf install -y mesa-va-drivers-freeworld --allowerasing || \
-        sudo dnf install -y mesa-va-drivers-freeworld --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing
+        # Force installation of 64-bit video acceleration driver
+        sudo dnf install -y mesa-va-drivers-freeworld.x86_64 --allowerasing || \
+        sudo dnf install -y mesa-va-drivers-freeworld.x86_64 --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing
     fi
 else
     echo "ℹ️ Vendor is not AMD or Intel ($GPU_VENDOR). Skipping GPU acceleration steps."
