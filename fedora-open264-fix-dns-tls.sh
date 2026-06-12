@@ -1,5 +1,5 @@
 #!/bin/bash
-S_VERSION="v.1.08 (DNF Install & Quotes Fixed)"; clear
+S_VERSION="v.1.09 (AMD/Intel Pure 64-bit Only)"; clear
 #set -euo pipefail
 
 if [[ "$LANG" =~ ^ru ]]; then
@@ -96,8 +96,9 @@ fi
 echo -e "\n${CL[P]}🟪🟪  01 / 12  🟪🟪  ${STEP_1[$LNG]}...🔧${CL[NC]}\n"
 if [[ "$IS_ATOMIC" == true ]]; then
     [ -f /etc/yum.repos.d/fedora-cisco-openh264.repo ] && sudo sed -i 's/enabled=1/enabled=0/' /etc/yum.repos.d/fedora-cisco-openh264.repo
+else
+    sudo dnf config-manager setopt fedora-cisco-openh264.enabled=0
 fi
-sudo dnf config-manager setopt fedora-cisco-openh264.enabled=0
 SaveResult "${STEP_1[$LNG]}" "$?"
 
 # 2. Swap openh264
@@ -151,9 +152,9 @@ echo -e "\n${CL[P]}🟪🟪  08 / 12  🟪🟪  ${STEP_8[$LNG]}...🔧${CL[NC]}\
 sudo flatpak mask org.freedesktop.Platform.openh264
 SaveResult "${STEP_8[$LNG]}" "$?"
 
-# 9. GPU Drivers with Testing-Repo Fallback (Smart Install)
+# 9. GPU Drivers (Pure AMD/Intel 64-bit Only)
 echo -e "\n${CL[P]}🟪🟪  09 / 12  🟪🟪  ${STEP_9[$LNG]}...🔧${CL[NC]}\n"
-GPU_VENDOR=$(lspci | grep -i "vga\|3d" | grep -oE "Intel|AMD|NVIDIA" | head -1)
+GPU_VENDOR=$(lspci | grep -i "vga\|3d" | grep -oE "Intel|AMD" | head -1)
 [ -z "$GPU_VENDOR" ] && GPU_VENDOR="Unknown"
 
 if [ "$GPU_VENDOR" = "Intel" ]; then
@@ -167,17 +168,12 @@ elif [ "$GPU_VENDOR" = "AMD" ]; then
         rpm-ostree override replace -y mesa-va-drivers mesa-va-drivers-freeworld && \
         rpm-ostree override replace -y mesa-vdpau-drivers mesa-vdpau-drivers-freeworld
     else
-        # Base 64-bit drivers via robust install with testing repo fallback
-        (sudo dnf install -y mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld --allowerasing || \
-         sudo dnf install -y mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing) && \
-        # Steam/Wine 32-bit drivers support via robust install (completely quieted to prevent DNF transaction reports)
-        (sudo dnf install -y mesa-va-drivers-freeworld.i686 mesa-vdpau-drivers-freeworld.i686 --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing > /dev/null 2>&1 || \
-         sudo dnf install -y mesa-va-drivers-freeworld.i686 mesa-vdpau-drivers-freeworld.i686 --allowerasing > /dev/null 2>&1 || true)
+        # Pure 64-bit drivers installation with updates-testing fallback
+        sudo dnf install -y mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld --allowerasing || \
+        sudo dnf install -y mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld --allowerasing --enablerepo=updates-testing --enablerepo=rpmfusion-free-updates-testing
     fi
-elif [ "$GPU_VENDOR" = "NVIDIA" ]; then
-    echo '⚠️ Manually install proprietary NVIDIA driver via Software Center'
 else
-    echo 'ℹ️ No specific GPU acceleration setup required for generic vendor'
+    echo "ℹ️ Vendor is not AMD or Intel ($GPU_VENDOR). Skipping GPU acceleration steps."
 fi
 SaveResult "${STEP_9[$LNG]}" "$?"
 
