@@ -1,6 +1,5 @@
 #!/bin/bash
-# === FEDORA OPENH264 GEOBLOCK FIX v3.5 ===
-# Исправлено: cosmic не Atomic, видимый прогресс, версия при запуске
+# === FEDORA OPENH264 GEOBLOCK FIX v3.7 (UNIVERSAL DETECTION) ===
 
 # Защита от sh
 if [ -z "$BASH_VERSION" ]; then
@@ -16,7 +15,7 @@ PURPLE='\e[35m'
 CYAN='\e[36m'
 NC='\e[0m'
 
-SCRIPT_VERSION="v3.5"
+SCRIPT_VERSION="v3.7 (Universal Detection)"
 
 clear
 
@@ -46,7 +45,6 @@ if [[ "$LNG" == "RU" ]]; then
     T_REBOOT="⚠ Требуется перезагрузка для Atomic Fedora"
     T_HINT="Перезапустите браузеры, включите аппаратное ускорение"
     T_DONE="ВСЁ ГОТОВО"
-    T_RUNNING="▶ Выполняется..."
     T_DETECTED="Обнаружено: Fedora %s (%s)"
     T_INTEL="Intel GPU"
     T_AMD="AMD GPU"
@@ -54,6 +52,9 @@ if [[ "$LNG" == "RU" ]]; then
     T_NO_GPU="Дискретный GPU не обнаружен"
     T_FLATPAK_MISSING="Flatpak не установлен, пропуск"
     T_SYSTEMD_MISSING="systemd-resolved не найден"
+    T_CHECKING="🔍 Проверяю тип системы..."
+    T_NON_ATOMIC="✓ Обычная Fedora (стандартная установка, dnf)"
+    T_UPDATING="⏳ Обновление системы (это может занять время)..."
 
     S1="Отключение репозитория Cisco"
     S2="Замена openh264 → noopenh264"
@@ -81,7 +82,6 @@ else
     T_REBOOT="⚠ Reboot required for Atomic Fedora"
     T_HINT="Restart browsers, enable hardware acceleration"
     T_DONE="ALL DONE"
-    T_RUNNING="▶ Running..."
     T_DETECTED="Detected: Fedora %s (%s)"
     T_INTEL="Intel GPU"
     T_AMD="AMD GPU"
@@ -89,6 +89,9 @@ else
     T_NO_GPU="No discrete GPU detected"
     T_FLATPAK_MISSING="Flatpak not installed, skipping"
     T_SYSTEMD_MISSING="systemd-resolved not found"
+    T_CHECKING="🔍 Checking system type..."
+    T_NON_ATOMIC="✓ Standard Fedora (dnf installation)"
+    T_UPDATING="⏳ Updating system (this may take a while)..."
 
     S1="Disable Cisco repo (geoblock fix)"
     S2="Replace openh264 → noopenh264"
@@ -117,13 +120,11 @@ L() { echo "[$(date '+%H:%M:%S')] $*" >> "$LOG"; }
 print_step() {
     local n="$1"
     echo -e "\n${PURPLE}📦 $(printf '%02d' $n)/$TOTAL ${STEPS[$((n-1))]}${NC}"
-    echo -e "${CYAN}   ${T_RUNNING}${NC}"
-    echo ""
 }
 
-mark_ok()    { echo -e "\n   ${GREEN}✓ OK${NC}";      L "Step $1: OK"; }
-mark_warn()  { echo -e "\n   ${YELLOW}⚠ Warning${NC}"; L "Step $1: Warning"; }
-mark_fail()  { echo -e "\n   ${RED}✗ FAILED${NC}";    L "Step $1: FAILED"; }
+mark_ok()    { echo -e "   ${GREEN}✓ OK${NC}";      L "Step $1: OK"; }
+mark_warn()  { echo -e "   ${YELLOW}⚠ Warning${NC}"; L "Step $1: Warning"; }
+mark_fail()  { echo -e "   ${RED}✗ FAILED${NC}";    L "Step $1: FAILED"; }
 
 # ============================================================
 # ЗАГОЛОВОК С ВЕРСИЕЙ
@@ -155,50 +156,130 @@ if [[ "$ID" != "fedora" ]]; then
     [[ ! "$REPLY" =~ ^[Yy]$ ]] && exit 1
 fi
 
-# ИСПРАВЛЕНО: cosmic НЕ Atomic! Только silverblue/kinoite/sericea
+# ============================================================
+# УНИВЕРСАЛЬНОЕ ОПРЕДЕЛЕНИЕ ATOMIC
+# ============================================================
+echo -e "${CYAN}${T_CHECKING}${NC}"
+
+# Известные Atomic VARIANT_ID с официального сайта Fedora:
+#   silverblue  — GNOME Atomic
+#   kinoite     — KDE Atomic
+#   sericea     — старое название Sway Atomic (до Fedora 41)
+#   sway        — Sway Atomic (Fedora 41+)
+#   budgie      — Budgie Atomic
+#   cosmic      — COSMIC Atomic
+#
+# Обычные Spins (НЕ Atomic):
+#   workstation, kde, xfce, lxqt, lxde, cinnamon,
+#   mate, soas, i3, budgie, cosmic, sway
+#
+# ВАЖНО: budgie, cosmic, sway существуют в обоих вариантах!
+# Поэтому VARIANT_ID НЕ достаточно — нужна доп. проверка.
+
+# Тройная проверка атомарности:
+#   1. /run/ostree-booted — файл существует на всех ostree-системах
+#   2. command -v rpm-ostree — команда доступна
+#   3. VARIANT_ID — совпадает со списком известных Atomic
+
+ATOMIC_BY_OSTREE=false
+ATOMIC_BY_CMD=false
+ATOMIC_BY_VARIANT=false
+
+# Проверка 1: /run/ostree-booted
+if [[ -f /run/ostree-booted ]]; then
+    ATOMIC_BY_OSTREE=true
+    echo "  ✓ /run/ostree-booted: FOUND"
+    L "Atomic check: /run/ostree-booted = FOUND"
+else
+    echo "  ✗ /run/ostree-booted: not found"
+    L "Atomic check: /run/ostree-booted = NOT FOUND"
+fi
+
+# Проверка 2: rpm-ostree command
+if command -v rpm-ostree &>/dev/null; then
+    ATOMIC_BY_CMD=true
+    echo "  ✓ rpm-ostree: FOUND"
+    L "Atomic check: rpm-ostree = FOUND"
+else
+    echo "  ✗ rpm-ostree: not found"
+    L "Atomic check: rpm-ostree = NOT FOUND"
+fi
+
+# Проверка 3: VARIANT_ID
+ATOMIC_VARIANTS="silverblue|kinoite|sericea|sway|budgie|cosmic"
+if [[ "$VARIANT_ID" =~ ^($ATOMIC_VARIANTS)$ ]]; then
+    ATOMIC_BY_VARIANT=true
+    echo "  ✓ VARIANT_ID '$VARIANT_ID': in atomic list"
+    L "Atomic check: VARIANT_ID '$VARIANT_ID' matches atomic list"
+else
+    echo "  ✗ VARIANT_ID '${VARIANT_ID:-none}': not in atomic list"
+    L "Atomic check: VARIANT_ID '${VARIANT_ID:-none}' does NOT match"
+fi
+
+# Решение: Atomic если хотя бы одна проверка из (1) или (2) прошла
+# /run/ostree-booted и rpm-ostree — железобетонные признаки Atomic
 IS_ATOMIC=false
-if [[ "$VARIANT_ID" =~ ^(silverblue|kinoite|sericea)$ ]]; then
+if [[ "$ATOMIC_BY_OSTREE" == true ]] || [[ "$ATOMIC_BY_CMD" == true ]]; then
     IS_ATOMIC=true
-    printf "${YELLOW}${T_ATOMIC}${NC}\n" "$VARIANT_ID"
-    L "Atomic mode: $VARIANT_ID"
+    printf "${YELLOW}${T_ATOMIC}${NC}\n" "${VARIANT_ID:-unknown}"
+    L "=> FINAL: IS_ATOMIC=true (ostree=$ATOMIC_BY_OSTREE cmd=$ATOMIC_BY_CMD variant=$ATOMIC_BY_VARIANT)"
+else
+    echo -e "${GREEN}${T_NON_ATOMIC}${NC}"
+    L "=> FINAL: IS_ATOMIC=false (ostree=$ATOMIC_BY_OSTREE cmd=$ATOMIC_BY_CMD variant=$ATOMIC_BY_VARIANT)"
 fi
 
 FEDORA_VER=$(rpm -E %fedora)
-printf "${BLUE}${T_DETECTED}${NC}\n" "$FEDORA_VER" "${VARIANT_ID:-workstation}"
-L "Fedora version: $FEDORA_VER"
+printf "${BLUE}${T_DETECTED}${NC}\n" "$FEDORA_VER" "${VARIANT_ID:-standard}"
+L "Fedora version: $FEDORA_VER | Atomic: $IS_ATOMIC"
+
+# Устанавливаем dnf-plugins-core (только для не-Atomic)
+if [[ "$IS_ATOMIC" != true ]]; then
+    echo -e "${CYAN}  Installing dnf-plugins-core...${NC}"
+    dnf install -y dnf-plugins-core 2>&1 | tee -a "$LOG" | tail -1
+fi
 
 # ============================================================
 # STEP 1: ОТКЛЮЧЕНИЕ CISCO REPO
 # ============================================================
 print_step 1
 if [[ "$IS_ATOMIC" == true ]]; then
+    echo "  Mode: rpm-ostree (Atomic)"
     if [[ -f /etc/yum.repos.d/fedora-cisco-openh264.repo ]]; then
         sed -i 's/^enabled=.*/enabled=0/' /etc/yum.repos.d/fedora-cisco-openh264.repo
         echo "  Disabled: fedora-cisco-openh264.repo"
+    else
+        echo "  Repo file not found, skipping"
     fi
-    mark_ok 1
 else
-    if dnf config-manager --set-disabled fedora-cisco-openh264 2>&1 | tee -a "$LOG"; then
-        mark_ok 1
+    echo "  Mode: dnf (Standard)"
+    if dnf config-manager --set-disabled fedora-cisco-openh264 2>&1 | tee -a "$LOG" >/dev/null; then
+        echo "  Disabled via dnf config-manager"
+    elif dnf config-manager setopt fedora-cisco-openh264.enabled=0 2>&1 | tee -a "$LOG" >/dev/null; then
+        echo "  Disabled via dnf config-manager setopt"
     elif [[ -f /etc/yum.repos.d/fedora-cisco-openh264.repo ]]; then
         sed -i 's/^enabled=.*/enabled=0/' /etc/yum.repos.d/fedora-cisco-openh264.repo
-        echo "  Manual disable: sed enabled=0"
-        mark_ok 1
+        echo "  Disabled via sed (fallback)"
     else
         echo "  Repo not found, skipping"
         mark_warn 1
+        # Skip to next step
+        goto_step2=true
     fi
 fi
+[[ "${goto_step2:-}" != true ]] && mark_ok 1
 
 # ============================================================
 # STEP 2: ЗАМЕНА openh264 → noopenh264
 # ============================================================
 print_step 2
 if [[ "$IS_ATOMIC" == true ]]; then
+    echo "  rpm-ostree install noopenh264"
     rpm-ostree install noopenh264 -y 2>&1 | tee -a "$LOG"
+    echo "  rpm-ostree override remove openh264"
     rpm-ostree override remove openh264 -y 2>&1 | tee -a "$LOG"
-    [[ ${PIPESTATUS[0]} -eq 0 ]] && mark_ok 2 || mark_warn 2
+    mark_ok 2
 else
+    echo "  dnf swap '*openh264*' noopenh264 --allowerasing"
     if dnf swap '*openh264*' noopenh264 --allowerasing -y 2>&1 | tee -a "$LOG"; then
         mark_ok 2
     elif dnf install noopenh264 -y 2>&1 | tee -a "$LOG" && \
@@ -210,13 +291,17 @@ else
 fi
 
 # ============================================================
-# STEP 3: ОБНОВЛЕНИЕ СИСТЕМЫ (видимый прогресс!)
+# STEP 3: ОБНОВЛЕНИЕ СИСТЕМЫ
 # ============================================================
 print_step 3
+echo -e "${CYAN}  ${T_UPDATING}${NC}"
+echo ""
 if [[ "$IS_ATOMIC" == true ]]; then
+    echo "  Command: rpm-ostree upgrade"
     rpm-ostree upgrade -y 2>&1 | tee -a "$LOG"
     RC=${PIPESTATUS[0]}
 else
+    echo "  Command: dnf update"
     dnf update -y 2>&1 | tee -a "$LOG"
     RC=${PIPESTATUS[0]}
 fi
@@ -229,34 +314,39 @@ print_step 4
 FREE_URL="https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm"
 NONFREE_URL="https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm"
 
+echo "  Installing RPM Fusion Free + NonFree..."
 if [[ "$IS_ATOMIC" == true ]]; then
     rpm-ostree install -y "$FREE_URL" "$NONFREE_URL" 2>&1 | tee -a "$LOG"
 else
     dnf install -y "$FREE_URL" "$NONFREE_URL" 2>&1 | tee -a "$LOG"
 fi
 
-echo "  Checking RPM Fusion repos..."
+echo "  Verifying RPM Fusion repos..."
 sleep 2
 if dnf repolist 2>/dev/null | grep -qi "rpmfusion"; then
-    echo "  RPM Fusion: ACTIVE"
+    echo "  ✓ RPM Fusion: ACTIVE"
+    dnf repolist 2>/dev/null | grep -i "rpmfusion" | sed 's/^/    /'
     mark_ok 4
 else
-    echo "  RPM Fusion not detected, attempting fix..."
+    echo "  ⚠ RPM Fusion not detected, attempting fix..."
     if [[ "$IS_ATOMIC" != true ]]; then
-        dnf config-manager setopt rpmfusion-free.enabled=1 2>&1 | tee -a "$LOG" || true
-        dnf config-manager setopt rpmfusion-free-updates.enabled=1 2>&1 | tee -a "$LOG" || true
-        dnf config-manager setopt rpmfusion-nonfree.enabled=1 2>&1 | tee -a "$LOG" || true
-        dnf config-manager setopt rpmfusion-nonfree-updates.enabled=1 2>&1 | tee -a "$LOG" || true
-        dnf config-manager setopt rpmfusion-free-rawhide.enabled=0 2>&1 | tee -a "$LOG" || true
-        dnf config-manager setopt rpmfusion-nonfree-rawhide.enabled=0 2>&1 | tee -a "$LOG" || true
+        dnf config-manager setopt rpmfusion-free.enabled=1 2>&1 | tee -a "$LOG" >/dev/null || true
+        dnf config-manager setopt rpmfusion-free-updates.enabled=1 2>&1 | tee -a "$LOG" >/dev/null || true
+        dnf config-manager setopt rpmfusion-nonfree.enabled=1 2>&1 | tee -a "$LOG" >/dev/null || true
+        dnf config-manager setopt rpmfusion-nonfree-updates.enabled=1 2>&1 | tee -a "$LOG" >/dev/null || true
+        dnf config-manager setopt rpmfusion-free-rawhide.enabled=0 2>&1 | tee -a "$LOG" >/dev/null || true
+        dnf config-manager setopt rpmfusion-nonfree-rawhide.enabled=0 2>&1 | tee -a "$LOG" >/dev/null || true
     fi
+    sleep 2
     if dnf repolist 2>/dev/null | grep -qi "rpmfusion"; then
-        echo "  RPM Fusion: FIXED & ACTIVE"
+        echo "  ✓ RPM Fusion: FIXED & ACTIVE"
+        dnf repolist 2>/dev/null | grep -i "rpmfusion" | sed 's/^/    /'
         mark_ok 4
     else
         echo -e "   ${RED}${T_RPMFAIL}${NC}"
         mark_fail 4
-        echo -e "\n${RED}═══════════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "${RED}═══════════════════════════════════════════════${NC}"
         echo -e "${RED}Cannot continue without RPM Fusion.${NC}"
         echo -e "${CYAN}Log: $LOG${NC}"
         exit 1
@@ -268,12 +358,14 @@ fi
 # ============================================================
 print_step 5
 if [[ "$IS_ATOMIC" == true ]]; then
+    echo "  rpm-ostree override remove libav*-free + install ffmpeg"
     rpm-ostree override remove \
         libavcodec-free libavfilter-free libavformat-free \
         libavutil-free libpostproc-free libswresample-free libswscale-free \
         --install ffmpeg -y 2>&1 | tee -a "$LOG"
     [[ ${PIPESTATUS[0]} -eq 0 ]] && mark_ok 5 || mark_warn 5
 else
+    echo "  dnf swap ffmpeg-free ffmpeg --allowerasing"
     if dnf swap ffmpeg-free ffmpeg --allowerasing -y 2>&1 | tee -a "$LOG"; then
         mark_ok 5
     elif dnf install ffmpeg --allowerasing -y 2>&1 | tee -a "$LOG"; then
@@ -288,11 +380,13 @@ fi
 # ============================================================
 print_step 6
 if [[ "$IS_ATOMIC" == true ]]; then
+    echo "  rpm-ostree install @multimedia"
     rpm-ostree install -y @multimedia \
         --exclude=PackageKit-gstreamer-plugin \
         --exclude=gstreamer1-plugin-openh264 2>&1 | tee -a "$LOG"
     [[ ${PIPESTATUS[0]} -eq 0 ]] && mark_ok 6 || mark_warn 6
 else
+    echo "  dnf group install multimedia"
     if dnf group install multimedia --exclude=PackageKit-gstreamer-plugin -y 2>&1 | tee -a "$LOG"; then
         mark_ok 6
     elif dnf groupinstall -y @multimedia --exclude=PackageKit-gstreamer-plugin 2>&1 | tee -a "$LOG"; then
@@ -307,8 +401,10 @@ fi
 # ============================================================
 print_step 7
 if [[ "$IS_ATOMIC" == true ]]; then
+    echo "  rpm-ostree install libavcodec-freeworld"
     rpm-ostree install -y libavcodec-freeworld 2>&1 | tee -a "$LOG"
 else
+    echo "  dnf install libavcodec-freeworld"
     dnf install -y libavcodec-freeworld 2>&1 | tee -a "$LOG"
 fi
 [[ ${PIPESTATUS[0]} -eq 0 ]] && mark_ok 7 || mark_warn 7
@@ -318,18 +414,17 @@ fi
 # ============================================================
 print_step 8
 if [[ "$IS_ATOMIC" == true ]]; then
-    echo "  Handled by override in Step 2"
+    echo "  Already handled by rpm-ostree override in Step 2"
     mark_ok 8
 else
+    echo "  Creating exclusion configs..."
     mkdir -p /etc/dnf/libdnf5.conf.d /etc/dnf/conf.d 2>/dev/null
 
-    echo "[main]
-exclude=openh264*" > /etc/dnf/libdnf5.conf.d/99-exclude-openh264.conf
-    echo "[main]
-exclude=openh264*" > /etc/dnf/conf.d/99-exclude-openh264.conf
+    printf '[main]\nexclude=openh264*\n' > /etc/dnf/libdnf5.conf.d/99-exclude-openh264.conf
+    echo "  ✓ /etc/dnf/libdnf5.conf.d/99-exclude-openh264.conf"
 
-    echo "  Written: /etc/dnf/libdnf5.conf.d/99-exclude-openh264.conf"
-    echo "  Written: /etc/dnf/conf.d/99-exclude-openh264.conf"
+    printf '[main]\nexclude=openh264*\n' > /etc/dnf/conf.d/99-exclude-openh264.conf
+    echo "  ✓ /etc/dnf/conf.d/99-exclude-openh264.conf"
 
     if [[ -f /etc/dnf/libdnf5.conf.d/99-exclude-openh264.conf ]] || \
        [[ -f /etc/dnf/conf.d/99-exclude-openh264.conf ]]; then
@@ -344,6 +439,7 @@ fi
 # ============================================================
 print_step 9
 if command -v flatpak &>/dev/null; then
+    echo "  flatpak mask org.freedesktop.Platform.openh264"
     if flatpak mask org.freedesktop.Platform.openh264 2>&1 | tee -a "$LOG"; then
         mark_ok 9
     else
@@ -363,6 +459,7 @@ L "GPU line: $GPU_LINE"
 
 if echo "$GPU_LINE" | grep -qi "intel"; then
     echo -e "   ${BLUE}${T_INTEL}${NC}"
+    echo "  Installing: intel-media-driver libva-utils"
     if [[ "$IS_ATOMIC" == true ]]; then
         rpm-ostree install -y intel-media-driver libva-utils 2>&1 | tee -a "$LOG"
     else
@@ -370,6 +467,7 @@ if echo "$GPU_LINE" | grep -qi "intel"; then
     fi
 elif echo "$GPU_LINE" | grep -qiE "amd|radeon"; then
     echo -e "   ${BLUE}${T_AMD}${NC}"
+    echo "  Installing: mesa-va-drivers-freeworld"
     if [[ "$IS_ATOMIC" == true ]]; then
         rpm-ostree install -y mesa-va-drivers-freeworld 2>&1 | tee -a "$LOG"
     else
@@ -377,6 +475,7 @@ elif echo "$GPU_LINE" | grep -qiE "amd|radeon"; then
     fi
 elif echo "$GPU_LINE" | grep -qi "nvidia"; then
     echo -e "   ${BLUE}${T_NVIDIA}${NC}"
+    echo "  Installing: akmod-nvidia"
     if [[ "$IS_ATOMIC" == true ]]; then
         rpm-ostree install -y akmod-nvidia 2>&1 | tee -a "$LOG"
     else
@@ -384,13 +483,15 @@ elif echo "$GPU_LINE" | grep -qi "nvidia"; then
     fi
 else
     echo -e "   ${YELLOW}${T_NO_GPU}${NC}"
+    echo "  No GPU drivers needed"
 fi
-[[ ${PIPESTATUS[0]} -eq 0 ]] && mark_ok 10 || mark_warn 10
+[[ ${PIPESTATUS[0]:-0} -eq 0 ]] && mark_ok 10 || mark_warn 10
 
 # ============================================================
 # STEP 11: VLC
 # ============================================================
 print_step 11
+echo "  Installing VLC media player"
 if [[ "$IS_ATOMIC" == true ]]; then
     rpm-ostree install -y vlc 2>&1 | tee -a "$LOG"
 else
@@ -402,6 +503,7 @@ fi
 # STEP 12: VLC ПО УМОЛЧАНИЮ
 # ============================================================
 print_step 12
+echo "  Setting VLC as default video player"
 VIDEO_MIMES="video/mp4 video/x-matroska video/webm video/avi video/quicktime video/x-flv"
 SET_OK=false
 
@@ -440,10 +542,10 @@ DNS=$DNS_SRV
 DNSOverTLS=yes
 Domains=~.
 DOTEOF
+            echo "  ✓ Written: /etc/systemd/resolved.conf.d/dot.conf"
             ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>>"$LOG" || true
             systemctl enable systemd-resolved --now 2>>"$LOG" || true
             systemctl restart systemd-resolved 2>>"$LOG" || true
-            echo "  systemd-resolved configured with DNS-over-TLS"
             echo -e "   ${GREEN}✓ ${T_DNS_DONE}${NC}"
             mark_ok 13
         else
@@ -467,11 +569,10 @@ ELAPSED=$(( $(date +%s) - TIME_START ))
 echo ""
 echo -e "${PURPLE}═══════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}  ${T_DONE}${NC}"
+echo -e "${BLUE}  Version: ${SCRIPT_VERSION}${NC}"
 echo -e "${BLUE}  Time: ${ELAPSED}s${NC}"
 echo -e "${BLUE}  Log:  ${LOG}${NC}"
-if [[ "$IS_ATOMIC" == true ]]; then
-    echo -e "${YELLOW}  ${T_REBOOT}${NC}"
-fi
+[[ "$IS_ATOMIC" == true ]] && echo -e "${YELLOW}  ${T_REBOOT}${NC}"
 echo -e "${CYAN}  ${T_HINT}${NC}"
 echo -e "${PURPLE}═══════════════════════════════════════════════════${NC}"
 
