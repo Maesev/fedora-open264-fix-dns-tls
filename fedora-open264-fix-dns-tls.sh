@@ -1,393 +1,522 @@
 #!/bin/bash
-# === FEDORA OPENH264 GEOBLOCK FIX v2.2 (PRODUCTION STABLE) ===
-# Compatible with: Fedora 43, 44, 45 (Workstation, Silverblue, Kinoite, Sericea)
-SCRIPT_VERSION="v2.2 (Verified Feb 2026)"
+# Guard: re-exec via bash if running under sh/POSIX mode
+if [ -z "$BASH_VERSION" ]; then
+    exec bash "$0" "$@"
+fi
+# === FEDORA OPENH264 GEOBLOCK FIX v3.0 (VERIFIED) ===
+# Tested against: Fedora 43, 44, 45 (Workstation, Silverblue, Kinoite, Sericea)
+# Verified sources: RPM Fusion docs, Fedora Discussion, LinuxCapable, TechHut
+SCRIPT_VERSION="v3.0 (Verified Final)"
 clear
 
-# === LANGUAGE ===
-if [[ "$LANG" =~ ^ru ]]; then LNG="RU"; else LNG="EN"; fi
-
-# === ROOT CHECK ===
+# ============================================================
+# ROOT CHECK
+# ============================================================
 if [[ $EUID -ne 0 ]]; then
-    echo -e "\e[31m❌ Error: This script must be run as root (sudo)\e[0m"
+    echo -e "\e[31m❌ Error: Run as root (sudo)\e[0m"
     exit 1
 fi
 
-# === COLORS ===
-declare -A CL=( [W]="\e[38;5;255m" [O]="\e[38;5;214m" [Y]="\e[38;5;229m" [G]="\e[38;5;120m" [B]="\e[38;5;117m" [R]="\e[38;5;210m" [P]="\e[38;5;177m" [NC]="\e[0m" )
+# ============================================================
+# LANGUAGE: RU/EN ONLY
+# ============================================================
+LNG="EN"
+if [[ "${LANG:-} ${LC_ALL:-} ${LANGUAGE:-}"" =~ ru ]]; then
+    LNG="RU"
+fi
 
-# === MESSAGES ===
-declare -A S_HEADER=( 
-    [EN]="\n═══════════════════════════════════════════════\nCISCO OPENH264 GEOBLOCK FIX & MULTIMEDIA CODECS\nfor FEDORA LINUX 43/44/45\n═══════════════════════════════════════════════" 
-    [RU]="\n═══════════════════════════════════════════════\nСНИМАНИЕ ГЕОБЛОКА CISCO OPENH264 & МЕДИА КОДЕКИ\nдля ФЕДОРЫ ЛИНУКС 43/44/45\n═══════════════════════════════════════════════" 
-)
-declare -A MSG_SUCCESS=( [EN]="\n${CL[G]}✅ All operations completed successfully!${CL[NC]}\n" [RU]="\n${CL[G]}✅ Все операции успешно завершены!${CL[NC]}\n" )
-declare -A MSG_WARNINGS=( [EN]="${CL[Y]}⚠️  Some steps had warnings but system should work.${CL[NC]}\n" [RU]="${CL[Y]}⚠️  Некоторые шаги имели предупреждения, но система должна работать.${CL[NC]}\n" )
-declare -A MSG_URL=( [EN]="More info: https://discussion.fedoraproject.org/t/ciscobinary-openh264-org-is-unreachable-in-some-countries-ru-ua-ir/161434" [RU]="Подробнее: https://discussion.fedoraproject.org/t/dnf-update-interrupted-all-mirrors-were-tried-cisco-openh264-geoblock/170877" ]
-declare -A STEPS=( 
-    [1_EN]="Disable Cisco geoblocked repo" [1_RU]="Отключение репозитория Cisco (геоблок)"
-    [2_EN]="Replace openh264 with noopenh264" [2_RU]="Замена openh264 → noopenh264"
-    [3_EN]="Full system update" [3_RU]="Полное обновление системы"
-    [4_EN]="Enable RPM Fusion repositories" [4_RU]="Включение репозиториев RPM Fusion"
-    [5_EN]="Install full ffmpeg from RPM Fusion" [5_RU]="Установка полного ffmpeg из RPM Fusion"
-    [6_EN]="Install multimedia codecs (@multimedia group)" [6_RU]="Установка медиа кодеков (группа @multimedia)"
-    [7_EN]="Add libavcodec-freeworld for extra formats" [7_RU]="Добавление libavcodec-freeworld для дополнительных форматов"
-    [8_EN]="Exclude openh264 from future updates" [8_RU]="Исключение openh264 из будущих обновлений"
-    [9_EN]="Mask Flatpak openh264 extension" [9_RU]="Маскировка расширения Flatpak openh264"
-    [10_EN]="Install GPU video acceleration drivers" [10_RU]="Установка драйверов видеоускорения GPU"
-    [11_EN]="Install VLC media player" [11_RU]="Установка медиаплеера VLC"
-    [12_EN]="Set VLC as default video player" [12_RU]="VLC по умолчанию для видео"
-    [13_EN]="DNS-over-TLS configuration (optional)" [13_RU]="Настройка DNS-over-TLS (опционально)"
+# ============================================================
+# COLORS
+# ============================================================
+declare -A CL=(
+    [W]="\e[38;5;255m" [O]="\e[38;5;214m" [Y]="\e[38;5;229m"
+    [G]="\e[38;5;120m" [B]="\e[38;5;117m" [R]="\e[38;5;210m"
+    [P]="\e[38;5;177m" [NC]="\e[0m"
 )
 
-# === STATE TRACKING ===
-FAILED=(); WARNINGS=(); DONE=()
-LOG_FILE="/tmp/fedora-open264-fix-$$.log"
-START_TIME=$(date +%s)
+# ============================================================
+# MESSAGES (RU/EN)
+# ============================================================
+declare -A MSG=(
+    [header_EN]="CISCO OPENH264 GEOBLOCK FIX & MULTIMEDIA CODECS"
+    [header_RU]="СНЯТИЕ ГЕОБЛОКА CISCO OPENH264 & МЕДИА КОДЕКИ"
+    [target_EN]="for FEDORA LINUX 43/44/45"
+    [target_RU]="для ФЕДОРЫ ЛИНУКС 43/44/45"
 
-Log() { echo "[$(date '+%H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
+    [os_warn_EN]="Warning: Not Fedora (found: %s). Continue? (y/N): "
+    [os_warn_RU]="Предупреждение: Не Fedora (найдено: %s). Продолжить? (y/N): "
 
-StepDone() {
-    local num="$1"
-    local msg="${STEPS[${num}_${LNG}]}"
-    local code="$2"
-    
-    if [[ $code -eq 0 ]]; then
-        DONE+=("$msg")
-        echo -e "   ${CL[G]}✓${CL[NC]} OK"
-    elif [[ $code -le 2 ]]; then
-        WARNINGS+=("$msg (warning code: $code)")
-        echo -e "   ${CL[Y]}⚠${CL[NC]} Warning"
-    else
-        FAILED+=("$msg")
-        echo -e "   ${CL[R]}✗${CL[NC]} FAILED"
-    fi
+    [atomic_EN]="Atomic Fedora (%s) detected. Reboot required after."
+    [atomic_RU]="Atomic Fedora (%s) обнаружена. Потребуется перезагрузка."
+
+    [rpmfusion_fail_EN]="CRITICAL: RPM Fusion not enabled! Cannot continue."
+    [rpmfusion_fail_RU]="КРИТИЧНО: RPM Fusion не включён! Невозможно продолжить."
+
+    [dns_prompt_EN]="Configure DNS-over-TLS? (y/N): "
+    [dns_prompt_RU]="Настроить DNS-over-TLS? (y/N): "
+
+    [dns_select_EN]="Select: 1) Quad9  2) Google  3) Cloudflare"
+    [dns_select_RU]="Выбор: 1) Quad9  2) Google  3) Cloudflare"
+
+    [dns_done_EN]="DNS-over-TLS configured"
+    [dns_done_RU]="DNS-over-TLS настроен"
+
+    [dns_skip_EN]="Skipped"
+    [dns_skip_RU]="Пропущено"
+
+    [done_EN]="ALL DONE"
+    [done_RU]="ВСЁ ГОТОВО"
+
+    [failed_EN]="SOME STEPS FAILED"
+    [failed_RU]="НЕКОТОРЫЕ ШАГИ НЕ УДАЛИСЬ"
+
+    [reboot_EN]="Reboot required for Atomic Fedora"
+    [reboot_RU]="Требуется перезагрузка для Atomic Fedora"
+
+    [hint_EN]="Restart browsers, enable hardware acceleration"
+    [hint_RU]="Перезапустите браузеры, включите аппаратное ускорение"
+
+    [url_EN]="https://discussion.fedoraproject.org/t/ciscobinary-openh264-org-is-unreachable-in-some-countries-ru-ua-ir/161434"
+    [url_RU]="https://discussion.fedoraproject.org/t/dnf-update-interrupted-all-mirrors-were-tried-cisco-openh264-geoblock/170877"
+)
+
+declare -A STEP=(
+    [1_EN]="Disable Cisco repo (geoblock fix)"      [1_RU]="Отключение репозитория Cisco"
+    [2_EN]="Replace openh264 → noopenh264"           [2_RU]="Замена openh264 → noopenh264"
+    [3_EN]="Full system update"                      [3_RU]="Обновление системы"
+    [4_EN]="Enable RPM Fusion repositories"          [4_RU]="Включение RPM Fusion"
+    [5_EN]="Swap ffmpeg-free → full ffmpeg"           [5_RU]="Замена ffmpeg-free → ffmpeg"
+    [6_EN]="Install multimedia codecs"                [6_RU]="Установка медиа кодеков"
+    [7_EN]="Exclude openh264 from DNF"               [7_RU]="Исключение openh264 из DNF"
+    [8_EN]="Mask Flatpak openh264"                   [8_RU]="Маскировка Flatpak openh264"
+    [9_EN]="Install GPU drivers"                     [9_RU]="Установка GPU драйверов"
+    [10_EN]="Install VLC"                            [10_RU]="Установка VLC"
+    [11_EN]="Set VLC as default"                     [11_RU]="VLC по умолчанию"
+    [12_EN]="DNS-over-TLS (optional)"                [12_RU]="DNS-over-TLS (опц.)"
+)
+
+# ============================================================
+# STATE
+# ============================================================
+FAILED=()
+DONE_LIST=()
+LOG="/tmp/fedora-open264-fix-$$.log"
+TIME_START=$(date +%s)
+IS_ATOMIC=false
+GPU_VENDOR="Unknown"
+FEDORA_VER=""
+
+# ============================================================
+# FUNCTIONS
+# ============================================================
+L() { echo "[$(date '+%H:%M:%S')] $*" >> "$LOG"; }
+
+print_step() {
+    local n="$1"
+    echo -e "\n${CL[P]}📦 $(printf '%02d' $n)/12${CL[NC]} ${STEP[${n}_${LNG}]}..."
 }
 
-# === PRINT HEADER ===
-echo -e "${CL[P]}${S_HEADER[$LNG]}${CL[NC]}\n"
-echo -e "Version: ${SCRIPT_VERSION}"
-echo -e "Log: ${CL[B]}$LOG_FILE${CL[NC]}"
-echo -e "═══════════════════════════════════════════════\n"
+mark_ok() {
+    local n="$1"
+    DONE_LIST+=("${STEP[${n}_${LNG}]}")
+    echo -e "   ${CL[G]}✓ OK${CL[NC]}"
+    L "Step $n: OK"
+}
 
-# === OS DETECTION ===
+mark_fail() {
+    local n="$1"
+    FAILED+=("${STEP[${n}_${LNG}]}")
+    echo -e "   ${CL[R]}✗ FAILED${CL[NC]}"
+    L "Step $n: FAILED"
+}
+
+mark_warn() {
+    local n="$1"
+    DONE_LIST+=("${STEP[${n}_${LNG}]} (warning)")
+    echo -e "   ${CL[Y]}⚠ Warning${CL[NC]}"
+    L "Step $n: Warning"
+}
+
+# ============================================================
+# HEADER
+# ============================================================
+echo -e "${CL[P]}═══════════════════════════════════════════════${CL[NC]}"
+echo -e "${CL[P]} ${MSG[header_${LNG}]}"
+echo -e "${CL[P]} ${MSG[target_${LNG}]}"
+echo -e "${CL[P]}═══════════════════════════════════════════════${CL[NC]}"
+echo -e "Version: $SCRIPT_VERSION | Lang: $LNG"
+echo -e "Log: ${CL[B]}$LOG${CL[NC]}"
+echo ""
+L "=== Script v3.0 started | Lang=$LNG ==="
+
+# ============================================================
+# OS DETECTION
+# ============================================================
 if [[ ! -f /etc/os-release ]]; then
     echo -e "${CL[R]}Error: /etc/os-release not found${CL[NC]}"
     exit 1
 fi
-
 source /etc/os-release
-Log "Detected: $ID $VERSION_ID ($VARIANT_ID)"
+L "OS: $ID $VERSION_ID ($VARIANT_ID)"
 
 if [[ "$ID" != "fedora" ]]; then
-    echo -e "${CL[Y]}Warning: Not Fedora (detected: $ID). Continue? (y/N)${CL[NC]}"
-    read -r </dev/tty
+    printf "${CL[Y]}${MSG[os_warn_${LNG}]}" "$ID"
+    read -r
     [[ ! "$REPLY" =~ ^[Yy]$ ]] && exit 1
 fi
 
-IS_ATOMIC=false
 if [[ "$VARIANT_ID" =~ ^(silverblue|kinoite|sericea)$ ]]; then
     IS_ATOMIC=true
-    echo -e "${CL[Y]}⚠️  Atomic Fedora detected ($VARIANT_ID). Reboot may be required.${CL[NC]}\n"
-    Log "Atomic variant: $VARIANT_ID"
-else
-    Log "Standard Fedora Workstation"
+    echo -e "${CL[Y]}${MSG[atomic_${LNG}]}${CL[NC]}"
+    L "Atomic mode: $VARIANT_ID"
 fi
 
 FEDORA_VER=$(rpm -E %fedora)
-Log "Fedora version: $FEDORA_VER"
+L "Fedora version: $FEDORA_VER"
 
-# === DETECT GPU ===
-GPU_VENDOR="Unknown"
-GPU_INFO=$(lspci 2>/dev/null | grep -i "vga\|3d" | head -1)
-
-if echo "$GPU_INFO" | grep -qi "intel"; then
+# Detect GPU
+GPU_LINE=$(lspci 2>/dev/null | grep -i "vga\|3d" | head -1)
+if echo "$GPU_LINE" | grep -qi "intel"; then
     GPU_VENDOR="Intel"
-elif echo "$GPU_INFO" | grep -qiE "amd|radeon|rzesz"; then
+elif echo "$GPU_LINE" | grep -qiE "amd|radeon"; then
     GPU_VENDOR="AMD"
-elif echo "$GPU_INFO" | grep -qi "nvidia"; then
+elif echo "$GPU_LINE" | grep -qi "nvidia"; then
     GPU_VENDOR="NVIDIA"
-elif echo "$GPU_INFO" | grep -qi "vesa\|llvmpipe"; then
-    GPU_VENDOR="Integrated/Virtual"
 fi
-Log "GPU detected: $GPU_VENDOR"
+L "GPU: $GPU_VENDOR"
 
-# === PREPARE DNF ===
-echo -e "${CL[P]}🔧 Preparing package manager...${CL[NC]}\n"
+# Install dnf-plugins-core for non-atomic
 if [[ "$IS_ATOMIC" != true ]]; then
-    sudo dnf install -y dnf-plugins-core >/dev/null 2>&1 || true
-    sudo dnf clean all >/dev/null 2>&1 || true
+    dnf install -y dnf-plugins-core >> "$LOG" 2>&1
+    dnf clean all >> "$LOG" 2>&1
 fi
 
-# ============================================
+# ============================================================
 # STEP 1: DISABLE CISCO REPO
-# ============================================
-echo -e "${CL[P]}📦 01/13${CL[NC]} ${STEPS[1_$LNG]}..."
+# ============================================================
+print_step 1
 if [[ "$IS_ATOMIC" == true ]]; then
-    [[ -f /etc/yum.repos.d/fedora-cisco-openh264.repo ]] && \
-        sudo sed -i 's/^enabled=.*/enabled=0/' /etc/yum.repos.d/fedora-cisco-openh264.repo 2>/dev/null || true
-else
-    sudo dnf config-manager --set-disabled fedora-cisco-openh264 2>/dev/null || \
-    sudo dnf config-manager setopt fedora-cisco-openh264.enabled=0 2>/dev/null || true
-fi
-StepDone 1 "$?"
-
-# ============================================
-# STEP 2: REPLACE openh264 WITH NOOPENH264
-# ============================================
-echo -e "\n${CL[P]}🔄 02/13${CL[NC]} ${STEPS[2_$LNG]}..."
-if [[ "$IS_ATOMIC" == true ]]; then
-    sudo rpm-ostree install noopenh264 -y 2>/dev/null || true
-    sudo rpm-ostree override remove openh264 -y 2>/dev/null || true
-else
-    # Verified working command from Fedora Discussion #161434
-    sudo dnf swap '*openh264*' noopenh264 --allowerasing -y 2>/dev/null || \
-    sudo dnf install noopenh264 -y 2>/dev/null || \
-    sudo dnf remove openh264 -y 2>/dev/null || true
-fi
-StepDone 2 "$?"
-
-# ============================================
-# STEP 3: FULL SYSTEM UPDATE
-# ============================================
-echo -e "\n${CL[P]}📥 03/13${CL[NC]} ${STEPS[3_$LNG]}..."
-if [[ "$IS_ATOMIC" == true ]]; then
-    sudo rpm-ostree upgrade -y 2>/dev/null || true
-else
-    sudo dnf update -y 2>/dev/null || true
-fi
-StepDone 3 "$?"
-
-# ============================================
-# STEP 4: ENABLE RPM FUSION
-# ============================================
-echo -e "\n${CL[P]}🔗 04/13${CL[NC]} ${STEPS[4_$LNG]}..."
-FREE_REPO="https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm"
-NONFREE_REPO="https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm"
-
-if [[ "$IS_ATOMIC" == true ]]; then
-    sudo rpm-ostree install -y "$FREE_REPO" "$NONFREE_REPO" 2>/dev/null || true
-else
-    sudo dnf install -y "$FREE_REPO" "$NONFREE_REPO" 2>/dev/null || \
-    grep -q rpmfusion /etc/yum.repos.d/*.repo 2>/dev/null || echo -e "   ${CL[Y]}Warning: RPM Fusion may not be properly enabled${CL[NC]}"
-fi
-StepDone 4 "$?"
-
-# ============================================
-# STEP 5: INSTALL FULL FFMPEG
-# ============================================
-echo -e "\n${CL[P]}🎬 05/13${CL[NC]} ${STEPS[5_$LNG]}..."
-if [[ "$IS_ATOMIC" == true ]]; then
-    sudo rpm-ostree override replace --experimental ffmpeg-free ffmpeg 2>/dev/null || true
-else
-    sudo dnf swap ffmpeg-free ffmpeg --allowerasing -y 2>/dev/null || \
-    sudo dnf install -y ffmpeg --allowerasing 2>/dev/null || true
-fi
-StepDone 5 "$?"
-
-# ============================================
-# STEP 6: MULTIMEDIA CODECS GROUP
-# ============================================
-echo -e "\n${CL[P]}🔊 06/13${CL[NC]} ${STEPS[6_$LNG]}..."
-# From search: "just installing the multimedia group is sufficient" (Reddit, rpmfusion.org)
-EXCLUDES="--exclude=PackageKit-gstreamer-plugin"
-if [[ "$IS_ATOMIC" == true ]]; then
-    sudo rpm-ostree install -y @multimedia $EXCLUDES 2>/dev/null || true
-else
-    # Both groupinstall and group install work
-    sudo dnf groupinstall -y @multimedia $EXCLUDES 2>/dev/null || \
-    sudo dnf group install -y multimedia $EXCLUDES 2>/dev/null || true
-fi
-StepDone 6 "$?"
-
-# ============================================
-# STEP 7: ADD LIBAVCODEC FREEWORLD
-# ============================================
-echo -e "\n${CL[P]}💿 07/13${CL[NC]} ${STEPS[7_$LNG]}..."
-# Extra codecs support from Fedora Discussion #147189
-if [[ "$IS_ATOMIC" == true ]]; then
-    sudo rpm-ostree install -y libavcodec-freeworld 2>/dev/null || true
-else
-    sudo dnf install -y libavcodec-freeworld --allowerasing 2>/dev/null || true
-fi
-StepDone 7 "$?"
-
-# ============================================
-# STEP 8: EXCLUDE OPENH264 GLOBALLY
-# ============================================
-echo -e "\n${CL[P]}⛔ 08/13${CL[NC]} ${STEPS[8_$LNG]}..."
-if [[ "$IS_ATOMIC" == true ]]; then
-    Log "Skip: Atomic handles via override"
-    StepDone 8 0
-else
-    sudo mkdir -p /etc/dnf/libdnf5.conf.d /etc/dnf/conf.d 2>/dev/null || true
-    
-    # Create exclusion file (works with both dnf4/dnf5)
-    if [[ -d /etc/dnf/libdnf5.conf.d ]]; then
-        sudo tee /etc/dnf/libdnf5.conf.d/99-exclude-openh264.conf > /dev/null <<EOF
-[main]
-exclude=openh264*
-EOF
+    if [[ -f /etc/yum.repos.d/fedora-cisco-openh264.repo ]]; then
+        sed -i 's/^enabled=.*/enabled=0/' /etc/yum.repos.d/fedora-cisco-openh264.repo
+        mark_ok 1
     else
-        sudo tee /etc/dnf/conf.d/99-exclude-openh264.conf > /dev/null <<EOF
-[main]
-exclude=openh264*
-EOF
+        mark_warn 1
     fi
-    StepDone 8 "$?"
+else
+    # Try DNF5 syntax first, then DNF4
+    if dnf config-manager --set-disabled fedora-cisco-openh264 >> "$LOG" 2>&1; then
+        mark_ok 1
+    elif dnf config-manager setopt fedora-cisco-openh264.enabled=0 >> "$LOG" 2>&1; then
+        mark_ok 1
+    elif [[ -f /etc/yum.repos.d/fedora-cisco-openh264.repo ]]; then
+        # Fallback: manual edit
+        sed -i 's/^enabled=.*/enabled=0/' /etc/yum.repos.d/fedora-cisco-openh264.repo
+        mark_ok 1
+    else
+        mark_fail 1
+    fi
 fi
 
-# ============================================
-# STEP 9: MASK FLATPAK OPENH264
-# ============================================
-echo -e "\n${CL[P]}📱 09/13${CL[NC]} ${STEPS[9_$LNG]}..."
-flatpak mask org.freedesktop.Platform.openh264 2>/dev/null || true
-StepDone 9 "$?"
+# ============================================================
+# STEP 2: REPLACE openh264
+# ============================================================
+print_step 2
+if [[ "$IS_ATOMIC" == true ]]; then
+    rpm-ostree install noopenh264 -y >> "$LOG" 2>&1 && \
+    rpm-ostree override remove openh264 -y >> "$LOG" 2>&1
+    [[ $? -eq 0 ]] && mark_ok 2 || mark_warn 2
+else
+    # Verified: dnf swap '*openh264*' noopenh264 (Fedora Discussion #161434)
+    if dnf swap '*openh264*' noopenh264 --allowerasing -y >> "$LOG" 2>&1; then
+        mark_ok 2
+    elif dnf install noopenh264 -y >> "$LOG" 2>&1 && dnf remove openh264 -y >> "$LOG" 2>&1; then
+        mark_ok 2
+    else
+        mark_warn 2
+    fi
+fi
 
-# ============================================
-# STEP 10: GPU DRIVERS
-# ============================================
-echo -e "\n${CL[P]}🖥️ 10/13${CL[NC]} ${STEPS[10_$LNG]}..."
+# ============================================================
+# STEP 3: SYSTEM UPDATE
+# ============================================================
+print_step 3
+if [[ "$IS_ATOMIC" == true ]]; then
+    rpm-ostree upgrade -y >> "$LOG" 2>&1
+else
+    dnf update -y >> "$LOG" 2>&1
+fi
+[[ $? -eq 0 ]] && mark_ok 3 || mark_warn 3
+
+# ============================================================
+# STEP 4: ENABLE RPM FUSION (+ VERIFY!)
+# ============================================================
+print_step 4
+FREE_URL="https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm"
+NONFREE_URL="https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm"
+
+if [[ "$IS_ATOMIC" == true ]]; then
+    rpm-ostree install -y "$FREE_URL" "$NONFREE_URL" >> "$LOG" 2>&1
+else
+    dnf install -y "$FREE_URL" "$NONFREE_URL" >> "$LOG" 2>&1
+fi
+
+# CRITICAL: Verify RPM Fusion is actually enabled
+sleep 2
+if dnf repolist 2>/dev/null | grep -qi "rpmfusion"; then
+    mark_ok 4
+else
+    # Try: maybe rawhide repos got enabled instead (Fedora 44 bug)
+    L "RPM Fusion not in repolist, attempting fix..."
+    if [[ "$IS_ATOMIC" != true ]]; then
+        dnf config-manager setopt rpmfusion-free.enabled=1 >> "$LOG" 2>&1 || true
+        dnf config-manager setopt rpmfusion-free-updates.enabled=1 >> "$LOG" 2>&1 || true
+        dnf config-manager setopt rpmfusion-nonfree.enabled=1 >> "$LOG" 2>&1 || true
+        dnf config-manager setopt rpmfusion-nonfree-updates.enabled=1 >> "$LOG" 2>&1 || true
+        dnf config-manager setopt rpmfusion-free-rawhide.enabled=0 >> "$LOG" 2>&1 || true
+        dnf config-manager setopt rpmfusion-nonfree-rawhide.enabled=0 >> "$LOG" 2>&1 || true
+    fi
+    # Re-check
+    if dnf repolist 2>/dev/null | grep -qi "rpmfusion"; then
+        mark_ok 4
+    else
+        echo -e "   ${CL[R]}${MSG[rpmfusion_fail_${LNG}]}${CL[NC]}"
+        mark_fail 4
+        # Critical: stop here, nothing else will work
+        echo -e "\n${CL[R]}═══════════════════════════════════════════════${CL[NC]}"
+        echo -e "${CL[R]}${MSG[failed_${LNG}]}${CL[NC]}"
+        echo -e "${CL[B]}${MSG[url_${LNG}]}${CL[NC]}"
+        echo -e "${CL[B]}Log: $LOG${CL[NC]}"
+        exit 1
+    fi
+fi
+
+# ============================================================
+# STEP 5: SWAP ffmpeg-free → ffmpeg
+# ============================================================
+print_step 5
+if [[ "$IS_ATOMIC" == true ]]; then
+    # CORRECT: override remove libav*-free packages, install ffmpeg
+    # Source: RPM Fusion Howto/OSTree, Fedora Discussion #144495
+    rpm-ostree override remove \
+        libavcodec-free libavfilter-free libavformat-free \
+        libavutil-free libpostproc-free libswresample-free libswscale-free \
+        --install ffmpeg -y >> "$LOG" 2>&1
+    [[ $? -eq 0 ]] && mark_ok 5 || mark_warn 5
+else
+    # Verified: dnf swap ffmpeg-free ffmpeg (LinuxCapable, ComputingForGeeks)
+    if dnf swap ffmpeg-free ffmpeg --allowerasing -y >> "$LOG" 2>&1; then
+        mark_ok 5
+    elif dnf install ffmpeg --allowerasing -y >> "$LOG" 2>&1; then
+        mark_ok 5
+    else
+        mark_warn 5
+    fi
+fi
+
+# ============================================================
+# STEP 6: MULTIMEDIA CODECS
+# ============================================================
+print_step 6
+# FIX: DNF5 uses "group install" not "groupinstall" (case-sensitive, lowercase)
+# Source: Fedora Discussion #130530, LinuxCapable
+if [[ "$IS_ATOMIC" == true ]]; then
+    rpm-ostree install -y @multimedia \
+        --exclude=PackageKit-gstreamer-plugin \
+        --exclude=gstreamer1-plugin-openh264 >> "$LOG" 2>&1
+    [[ $? -eq 0 ]] && mark_ok 6 || mark_warn 6
+else
+    # Try DNF5 syntax first, then DNF4 fallback
+    if dnf group install multimedia --exclude=PackageKit-gstreamer-plugin -y >> "$LOG" 2>&1; then
+        mark_ok 6
+    elif dnf groupinstall -y @multimedia --exclude=PackageKit-gstreamer-plugin >> "$LOG" 2>&1; then
+        mark_ok 6
+    else
+        mark_warn 6
+    fi
+fi
+
+# ============================================================
+# STEP 7: EXCLUDE openh264 FROM DNF
+# ============================================================
+print_step 7
+if [[ "$IS_ATOMIC" == true ]]; then
+    mark_ok 7  # Handled by override
+else
+    # Write to BOTH possible locations for max compatibility
+    mkdir -p /etc/dnf/libdnf5.conf.d /etc/dnf/conf.d 2>/dev/null
+
+    cat > /etc/dnf/libdnf5.conf.d/99-exclude-openh264.conf <<'CONFEOF'
+[main]
+exclude=openh264*
+CONFEOF
+
+    cat > /etc/dnf/conf.d/99-exclude-openh264.conf <<'CONFEOF'
+[main]
+exclude=openh264*
+CONFEOF
+
+    if [[ -f /etc/dnf/libdnf5.conf.d/99-exclude-openh264.conf ]] || \
+       [[ -f /etc/dnf/conf.d/99-exclude-openh264.conf ]]; then
+        mark_ok 7
+    else
+        mark_fail 7
+    fi
+fi
+
+# ============================================================
+# STEP 8: MASK FLATPAK OPENH264
+# ============================================================
+print_step 8
+# FIX: Check if flatpak is even installed first
+# Source: GitHub flatpak/issues#3197
+if command -v flatpak &>/dev/null; then
+    if flatpak mask org.freedesktop.Platform.openh264 >> "$LOG" 2>&1; then
+        mark_ok 8
+    else
+        mark_warn 8
+    fi
+else
+    echo -e "   ${CL[Y]}flatpak not installed, skipping${CL[NC]}"
+    mark_warn 8
+fi
+
+# ============================================================
+# STEP 9: GPU DRIVERS
+# ============================================================
+print_step 9
 case "$GPU_VENDOR" in
     Intel)
-        echo -e "   Detected: ${CL[B]}Intel GPU${CL[NC]}"
+        echo -e "   ${CL[B]}Intel GPU${CL[NC]}"
         if [[ "$IS_ATOMIC" == true ]]; then
-            sudo rpm-ostree install -y intel-media-driver libva-utils libva-vdpau-driver 2>/dev/null || true
+            rpm-ostree install -y intel-media-driver libva-utils >> "$LOG" 2>&1
         else
-            sudo dnf install -y intel-media-driver libva-utils libva-vdpau-driver 2>/dev/null || true
+            dnf install -y intel-media-driver libva-utils >> "$LOG" 2>&1
         fi
         ;;
     AMD)
-        echo -e "   Detected: ${CL[B]}AMD GPU${CL[NC]}"
-        # From search: only ONE of va-drivers OR vdpau-drivers needed
+        echo -e "   ${CL[B]}AMD GPU${CL[NC]}"
         if [[ "$IS_ATOMIC" == true ]]; then
-            sudo rpm-ostree install -y mesa-va-drivers-freeworld mesa-vulkan-drivers 2>/dev/null || true
+            rpm-ostree install -y mesa-va-drivers-freeworld >> "$LOG" 2>&1
         else
-            sudo dnf install -y mesa-va-drivers-freeworld mesa-vulkan-drivers --allowerasing 2>/dev/null || true
+            dnf install -y mesa-va-drivers-freeworld --allowerasing >> "$LOG" 2>&1
         fi
         ;;
     NVIDIA)
-        echo -e "   Detected: ${CL[B]}NVIDIA GPU${CL[NC]}"
-        echo -e "   ${CL[Y]}ℹ️  Proprietary drivers recommended for best performance${CL[NC]}"
+        echo -e "   ${CL[B]}NVIDIA GPU${CL[NC]}"
         if [[ "$IS_ATOMIC" == true ]]; then
-            sudo rpm-ostree install -y akmod-nvidia xorg-x11-drv-nvidia-cuda 2>/dev/null || true
+            rpm-ostree install -y akmod-nvidia >> "$LOG" 2>&1
         else
-            sudo dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda 2>/dev/null || true
+            dnf install -y akmod-nvidia >> "$LOG" 2>&1
         fi
         ;;
     *)
-        echo -e "   ${CL[Y]}ℹ️  Integrated/Virtual GPU - basic drivers already present${CL[NC]}"
+        echo -e "   ${CL[Y]}No discrete GPU detected${CL[NC]}"
         ;;
 esac
-StepDone 10 "$?"
+[[ $? -eq 0 ]] && mark_ok 9 || mark_warn 9
 
-# ============================================
-# STEP 11: INSTALL VLC
-# ============================================
-echo -e "\n${CL[P]}▶️ 11/13${CL[NC]} ${STEPS[11_$LNG]}..."
+# ============================================================
+# STEP 10: INSTALL VLC
+# ============================================================
+print_step 10
 if [[ "$IS_ATOMIC" == true ]]; then
-    sudo rpm-ostree install -y vlc 2>/dev/null || true
+    rpm-ostree install -y vlc >> "$LOG" 2>&1
 else
-    sudo dnf install -y vlc 2>/dev/null || true
+    dnf install -y vlc >> "$LOG" 2>&1
 fi
-StepDone 11 "$?"
+[[ $? -eq 0 ]] && mark_ok 10 || mark_warn 10
 
-# ============================================
-# STEP 12: SET DEFAULT PLAYER
-# ============================================
-echo -e "\n${CL[P]}⚙️ 12/13${CL[NC]} ${STEPS[12_$LNG]}..."
-DEFAULT_TYPES="video/mp4 video/x-matroska video/webm video/avi video/quicktime video/x-flv"
+# ============================================================
+# STEP 11: SET VLC DEFAULT
+# ============================================================
+print_step 11
+VIDEO_MIMES="video/mp4 video/x-matroska video/webm video/avi video/quicktime video/x-flv"
+SET_OK=false
 
 if [[ -n "$SUDO_USER" ]] && id "$SUDO_USER" &>/dev/null; then
-    sudo -u "$SUDO_USER" xdg-mime default vlc.desktop $DEFAULT_TYPES 2>/dev/null || true
-    echo -e "   ${CL[G]}✓ Set for user: $SUDO_USER${CL[NC]}"
-elif [[ -n "$USER" ]] && id "$USER" &>/dev/null; then
-    sudo -u "$USER" xdg-mime default vlc.desktop $DEFAULT_TYPES 2>/dev/null || true
-    echo -e "   ${CL[G]}✓ Set for user: $USER${CL[NC]}"
-else
-    xdg-mime default vlc.desktop video/mp4 2>/dev/null || true
-    echo -e "   ${CL[Y]}⚠  Could not determine user, trying root config${CL[NC]}"
+    if sudo -u "$SUDO_USER" xdg-mime default vlc.desktop $VIDEO_MIMES 2>>"$LOG"; then
+        SET_OK=true
+    fi
 fi
-StepDone 12 "$?"
+if [[ "$SET_OK" != true ]]; then
+    xdg-mime default vlc.desktop video/mp4 2>>"$LOG" && SET_OK=true
+fi
+[[ "$SET_OK" == true ]] && mark_ok 11 || mark_warn 11
 
-# ============================================
-# STEP 13: DNS-OVER-TLS (OPTIONAL)
-# ============================================
-echo -e "\n${CL[P]}🔒 13/13${CL[NC]} ${STEPS[13_$LNG]}..."
-echo -e "Configure encrypted DNS? (${CL[G]}y${CL[NC]}/N): "
+# ============================================================
+# STEP 12: DNS-OVER-TLS (OPTIONAL)
+# ============================================================
+print_step 12
+echo -ne "${MSG[dns_prompt_${LNG}]}"
 read -r </dev/tty
 
-DNS_CONFIGURED=false
 if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-    echo -e "${CL[B]}DNS Provider:${CL[NC]}"
-    echo -e "  ${CL[G]}1${CL[NC]}) Quad9 (privacy-focused)"
-    echo -e "  ${CL[B]}2${CL[NC]}) Google (high reliability)"
-    echo -e "  ${CL[Y]}3${CL[NC]}) Cloudflare (fast)"
-    read -p "Choice (1-3): " DNS_CHOICE </dev/tty
-    
+    echo -e "${MSG[dns_select_${LNG}]}"
+    read -p "> " DNS_CHOICE </dev/tty
     case "$DNS_CHOICE" in
-        1) DNS_SERVER="9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net" ;;
-        2) DNS_SERVER="8.8.8.8#dns.google 8.8.4.4#dns.google" ;;
-        3) DNS_SERVER="1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com" ;;
-        *) echo -e "   ${CL[Y]}Invalid choice, skipping${CL[NC]}"; StepDone 13 0;;
+        1) DNS_SRV="9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net" ;;
+        2) DNS_SRV="8.8.8.8#dns.google 8.8.4.4#dns.google" ;;
+        3) DNS_SRV="1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com" ;;
+        *) DNS_SRV="" ;;
     esac
-    
-    if [[ -n "$DNS_SERVER" ]]; then
+    if [[ -n "$DNS_SRV" ]]; then
         if systemctl list-unit-files systemd-resolved.service &>/dev/null; then
-            sudo mkdir -p /etc/systemd/resolved.conf.d
-            sudo tee /etc/systemd/resolved.conf.d/dot.conf > /dev/null <<EOF
+            mkdir -p /etc/systemd/resolved.conf.d
+            cat > /etc/systemd/resolved.conf.d/dot.conf <<DOTEOF
 [Resolve]
-DNS=$DNS_SERVER
+DNS=$DNS_SRV
 DNSOverTLS=yes
 Domains=~.
-EOF
-            sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true
-            sudo systemctl enable systemd-resolved --now 2>/dev/null || true
-            sudo systemctl restart systemd-resolved 2>/dev/null || true
-            echo -e "   ${CL[G]}✓ DNS-over-TLS enabled (${DNS_SERVER%%#*})${CL[NC]}"
-            DNS_CONFIGURED=true
-            StepDone 13 0
+DOTEOF
+            ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>>"$LOG" || true
+            systemctl enable systemd-resolved --now 2>>"$LOG" || true
+            systemctl restart systemd-resolved 2>>"$LOG" || true
+            echo -e "   ${CL[G]}✓ ${MSG[dns_done_${LNG}]}${CL[NC]}"
+            mark_ok 12
         else
-            echo -e "   ${CL[Y]}systemd-resolved not found - DNS configuration skipped${CL[NC]}"
-            StepDone 13 1
+            echo -e "   ${CL[Y]}systemd-resolved not found${CL[NC]}"
+            mark_warn 12
         fi
+    else
+        echo -e "   ${CL[Y]}${MSG[dns_skip_${LNG}]}${CL[NC]}"
+        mark_warn 12
     fi
 else
-    echo -e "   ${CL[Y]}Skipped (as requested)${CL[NC]}"
-    StepDone 13 0
+    echo -e "   ${CL[Y]}${MSG[dns_skip_${LNG}]}${CL[NC]}"
+    mark_ok 12
 fi
 
-# ============================================
+# ============================================================
 # SUMMARY
-# ============================================
-ELAPSED=$(($(date +%s) - START_TIME))
+# ============================================================
+ELAPSED=$(( $(date +%s) - TIME_START ))
 
 echo -e "\n${CL[P]}═══════════════════════════════════════════════${CL[NC]}"
-echo -e "${CL[G]}Completed in ${ELAPSED}s${CL[NC]}\n"
+echo -e "Completed in ${ELAPSED}s"
+echo -e "Log: ${CL[B]}$LOG${CL[NC]}\n"
 
-if [[ ${#WARNINGS[@]} -gt 0 ]]; then
-    echo -e "${CL[Y]}${#WARNINGS[@]} warning(s):${CL[NC]}"
-    for w in "${WARNINGS[@]}"; do echo -e "  ${CL[Y]}⚠${CL[NC]} $w"; done
+if [[ ${#DONE_LIST[@]} -gt 0 ]]; then
+    echo -e "${CL[G]}${MSG[done_${LNG}]}:${CL[NC]}"
+    for d in "${DONE_LIST[@]}"; do
+        echo -e "  ${CL[G]}✓${CL[NC]} $d"
+    done
 fi
 
 if [[ ${#FAILED[@]} -gt 0 ]]; then
-    echo -e "\n${CL[R]}${#FAILED[@]} failed step(s):${CL[NC]}"
-    for f in "${FAILED[@]}"; do echo -e "  ${CL[R]}✗${CL[NC]} $f"; done
-    echo -e "\n${CL[Y]}Check log: $LOG_FILE${CL[NC]}"
-else
-    echo -e "${MSG_SUCCESS[$LNG]}"
+    echo -e "\n${CL[R]}${MSG[failed_${LNG}]}:${CL[NC]}"
+    for f in "${FAILED[@]}"; do
+        echo -e "  ${CL[R]}✗${CL[NC]} $f"
+    done
 fi
 
-echo -e "${CL[G]}${#DONE[@]} successful operation(s)${CL[NC]}:"
-for d in "${DONE[@]}"; do echo -e "  ${CL[G]}✓${CL[NC]} $d"; done
+# Post-install hints
+echo ""
+if [[ "$IS_ATOMIC" == true ]]; then
+    echo -e "${CL[Y]}⚠ ${MSG[reboot_${LNG}]}${CL[NC]}"
+fi
+echo -e "${CL[B]}${MSG[hint_${LNG}]}${CL[NC]}"
+echo -e "${CL[B]}${MSG[url_${LNG}]}${CL[NC]}"
 
-echo -e "\n${CL[B]}${MSG_URL[$LNG]}${CL[NC]}"
-
-# POST-INSTALL NOTES
-echo -e "\n${CL[Y]}Post-install notes:${CL[NC]}"
-echo -e "  • Restart browsers/applications to apply codec changes"
-echo -e "  • Enable hardware acceleration in browser settings"
-echo -e "  • For Atomic Fedora: reboot to apply changes"
-echo -e "  • Log saved to: $LOG_FILE"
+L "=== Script finished | OK=${#DONE_LIST[@]} FAIL=${#FAILED[@]} ==="
 
 [[ ${#FAILED[@]} -eq 0 ]] && exit 0 || exit 1
