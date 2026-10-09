@@ -44,7 +44,6 @@ Recommended: download, read, then run.
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/Maesev/fedora-open264-fix-dns-tls/main/fedora-open264-fix-dns-tls.sh
-less fedora-open264-fix-dns-tls.sh
 sudo bash fedora-open264-fix-dns-tls.sh
 ```
 
@@ -133,7 +132,6 @@ Fedora берёт `openh264` с серверов Cisco. Если регион з
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/Maesev/fedora-open264-fix-dns-tls/main/fedora-open264-fix-dns-tls.sh
-less fedora-open264-fix-dns-tls.sh
 sudo bash fedora-open264-fix-dns-tls.sh
 ```
 
